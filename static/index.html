@@ -10,32 +10,56 @@
       background: #111;
       color: #eee;
       --columns: 3;
+      overflow: hidden;
     }
     #controls {
       padding: 10px;
-      position: sticky;
+      position: fixed;
       top: 0;
+      left: 0;
+      right: 0;
       background: #222;
       z-index: 10;
       border-bottom: 1px solid #333;
       color: #eee;
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     .container {
       display: flex;
       gap: 10px;
       padding: 10px;
+      margin-top: 10px;
+      height: calc(100vh - 80px);
+      overflow: hidden;
     }
     .column {
       flex: 1;
       display: flex;
       flex-direction: column;
       gap: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    .column-content {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: transform linear;
+      will-change: transform;
     }
     .grid-item {
       width: 100%;
       border-radius: 16px;
       background: #222;
-      transition: transform 0.5s ease, opacity 0.5s ease;
+      flex-shrink: 0;
     }
     .grid-item video, .grid-item img {
       width: 100%;
@@ -43,17 +67,26 @@
       display: block;
       object-fit: contain;
       background: #111;
+      border-radius: 16px;
+    }
+    input[type="range"] {
+      min-width: 80px;
     }
   </style>
 </head>
 <body>
   <div id="controls">
-    <label for="count">Columns: <span id="countLabel">3</span></label>
-    <input type="range" min="1" max="6" value="3" id="count" />
+    <div class="control-group">
+      <label for="count">Columns: <span id="countLabel">3</span></label>
+      <input type="range" min="1" max="6" value="3" id="count" />
+    </div>
 
-    <label for="timeSlider">Duration: <span id="timeLabel">2s</span></label>
-    <input type="range" min="1" max="10" value="2" id="timeSlider" />
+    <div class="control-group">
+      <label for="speedSlider">Speed: <span id="speedLabel">8</span></label>
+      <input type="range" min="0" max="50" value="8" id="speedSlider" />
+    </div>
 
+    <div class="control-group">
       <input type="checkbox" id="filterGif" checked />
       <label for="filterGif">GIF</label>
 
@@ -65,34 +98,39 @@
 
       <input type="checkbox" id="filterImages" checked />
       <label for="filterImages">Images</label>
+    </div>
   </div>
 
   <div class="container" id="videoContainer"></div>
 
   <script type="module">
     const container = document.getElementById('videoContainer');
-    const slider = document.getElementById('count');
+    const columnSlider = document.getElementById('count');
     const countLabel = document.getElementById('countLabel');
+    const speedSlider = document.getElementById('speedSlider');
+    const speedLabel = document.getElementById('speedLabel');
     const filterGif = document.getElementById('filterGif');
     const filterWebm = document.getElementById('filterWebm');
     const filterMp4 = document.getElementById('filterMp4');
     const filterImages = document.getElementById('filterImages');
-    const timeSlider = document.getElementById('timeSlider');
-    const timeLabel = document.getElementById('timeLabel');
 
-    let columns = parseInt(slider.value);
-    let columnItems = [];
-    let topImageDuration = parseFloat(timeSlider.value);
+    let columns = parseInt(columnSlider.value);
+    let scrollSpeed = parseInt(speedSlider.value);
+    let columnElements = [];
+    let columnContents = [];
+    let animationFrameId = null;
+    let isScrolling = false;
 
-    slider.addEventListener('input', () => {
-      columns = parseInt(slider.value);
-      countLabel.textContent = slider.value;
+    columnSlider.addEventListener('input', () => {
+      columns = parseInt(columnSlider.value);
+      countLabel.textContent = columnSlider.value;
       resetGrid();
     });
 
-    timeSlider.addEventListener('input', () => {
-      topImageDuration = parseFloat(timeSlider.value);
-      timeLabel.textContent = `${topImageDuration}s`;
+    speedSlider.addEventListener('input', () => {
+      scrollSpeed = parseInt(speedSlider.value);
+      speedLabel.textContent = speedSlider.value;
+      updateScrollSpeed();
     });
 
     function getFilters() {
@@ -105,25 +143,43 @@
     }
 
     function resetGrid() {
+      stopScrolling();
       container.innerHTML = '';
-      columnItems = Array.from({ length: columns }, () => []);
+      columnElements = [];
+      columnContents = [];
 
       for (let i = 0; i < columns; i++) {
         const column = document.createElement('div');
         column.className = 'column';
-        container.appendChild(column);
-        columnItems[i] = column;
 
-        for (let j = 0; j < 5; j++) {
-          addNewItemToColumn(i);
-        }
+        const columnContent = document.createElement('div');
+        columnContent.className = 'column-content';
+
+        column.appendChild(columnContent);
+        container.appendChild(column);
+
+        columnElements[i] = column;
+        columnContents[i] = columnContent;
+
+        // Preload items for each column
+        loadInitialItems(i);
+      }
+
+      startScrolling();
+    }
+
+    async function loadInitialItems(columnIndex) {
+      const itemsToLoad = Math.ceil(window.innerHeight / 200) + 10; // Load enough items to fill screen plus buffer
+
+      for (let j = 0; j < itemsToLoad; j++) {
+        await addNewItemToColumn(columnIndex);
       }
     }
 
-    async function fetchRandomFile(page = 0, limit = 1) {
+    async function fetchRandomFile() {
       const filters = getFilters();
       const filterParam = filters.length > 0 ? `&types=${filters.join(',')}` : '';
-      const res = await fetch(`/api/videos?page=${page}&limit=${limit}${filterParam}`);
+      const res = await fetch(`/api/videos?page=0&limit=1${filterParam}`);
       const urls = await res.json();
       return urls[0];
     }
@@ -132,8 +188,6 @@
       const item = document.createElement('div');
       item.className = 'grid-item';
 
-      const jitter = (Math.random() - 0.5) * 1000; // Add jitter +/- 0.5s
-
       if (url.endsWith('.webm') || url.endsWith('.mp4')) {
         const video = document.createElement('video');
         video.src = url;
@@ -141,51 +195,125 @@
         video.autoplay = true;
         video.muted = true;
         item.appendChild(video);
-
-        setTimeout(() => {
-          const columnIndex = columnItems.findIndex(column => column.contains(item));
-          removeTopItemFromColumn(columnIndex);
-        }, (topImageDuration * 1000) + jitter);
       } else {
         const img = document.createElement('img');
         img.src = url;
         item.appendChild(img);
-
-        setTimeout(() => {
-          const columnIndex = columnItems.findIndex(column => column.contains(item));
-          removeTopItemFromColumn(columnIndex);
-        }, (topImageDuration * 1000) + jitter);
       }
 
       return item;
     }
 
     async function addNewItemToColumn(columnIndex) {
-      const url = await fetchRandomFile();
-      const item = createGridItem(url);
-      columnItems[columnIndex].appendChild(item);
+      try {
+        const url = await fetchRandomFile();
+        const item = createGridItem(url);
+        columnContents[columnIndex].appendChild(item);
+      } catch (error) {
+        console.error('Failed to add item to column:', error);
+      }
     }
 
-    function removeTopItemFromColumn(columnIndex) {
-      const column = columnItems[columnIndex];
-      if (column.children.length === 0) return;
-
-      const topItem = column.children[0];
-      if (!column.contains(topItem)) return; // Ensure the item is still a child
-
-      topItem.style.transition = 'opacity 1s ease, transform 1s ease, margin-top 1s ease';
-      topItem.style.opacity = '0';
-      topItem.style.transform = 'translateY(-40px)';
-      topItem.style.marginTop = `-${topItem.offsetHeight}px`;
-
-      setTimeout(() => {
-        if (column.contains(topItem)) { // Double-check before removing
-          column.removeChild(topItem);
-          addNewItemToColumn(columnIndex);
-        }
-      }, 500);
+    function updateScrollSpeed() {
+      // No need to restart scrolling, just update the speed
     }
 
+    function startScrolling() {
+      if (isScrolling || scrollSpeed === 0) return;
+
+      isScrolling = true;
+      scrollAllColumns();
+    }
+
+    function stopScrolling() {
+      isScrolling = false;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    }
+
+    function scrollAllColumns() {
+      if (!isScrolling) return;
+
+      const step = () => {
+        if (!isScrolling) return;
+
+        // Process all columns in the same frame to keep them synchronized
+        columnContents.forEach((content, columnIndex) => {
+          const column = columnElements[columnIndex];
+
+          if (!content || !column) return;
+
+          // Get current transform
+          const transform = getComputedStyle(content).transform;
+          let currentY = 0;
+
+          if (transform !== 'none') {
+            const matrix = transform.match(/matrix\(([^)]+)\)/);
+            if (matrix) {
+              const values = matrix[1].split(',');
+              currentY = parseFloat(values[5]) || 0;
+            }
+          }
+
+          // Calculate new position
+          const scrollAmount = (scrollSpeed / 10); // Adjust scroll amount based on speed
+          const newY = currentY - scrollAmount;
+
+          content.style.transform = `translateY(${newY}px)`;
+
+          // Check if we need to remove items that have scrolled out of view
+          const firstChild = content.firstElementChild;
+          if (firstChild) {
+            const itemRect = firstChild.getBoundingClientRect();
+            const columnRect = column.getBoundingClientRect();
+
+            // If the item has completely scrolled out of view (with some buffer)
+            if (itemRect.bottom < columnRect.top - 100) {
+              // Get the height BEFORE removing the element
+              const itemHeight = firstChild.offsetHeight + 10; // 10px gap
+
+              content.removeChild(firstChild);
+
+              // Adjust transform to account for removed item
+              content.style.transform = `translateY(${newY + itemHeight}px)`;
+
+              // Add a new item to the bottom
+              addNewItemToColumn(columnIndex);
+            }
+          }
+
+          // Ensure we always have enough items in the column
+          if (content.children.length < 5) {
+            addNewItemToColumn(columnIndex);
+          }
+        });
+
+        // Continue the animation
+        animationFrameId = requestAnimationFrame(step);
+      };
+
+      step();
+    }
+
+    // Handle filter changes
+    [filterGif, filterWebm, filterMp4, filterImages].forEach(filter => {
+      filter.addEventListener('change', () => {
+        resetGrid();
+      });
+    });
+
+    // Handle visibility change to pause/resume scrolling
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopScrolling();
+      } else {
+        startScrolling();
+      }
+    });
+
+    // Initialize
     resetGrid();
   </script>
 </body>
