@@ -8,8 +8,8 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -19,12 +19,20 @@ var staticFiles embed.FS
 var videoDir string
 var videoFiles []string // Global slice to hold randomized video list
 
+func openBrowser(url string) {
+	cmd := exec.Command("open", url)
+	cmd.Start()
+}
+
 func main() {
 	flag.StringVar(&videoDir, "dir", ".", "Directory containing video files")
 	flag.StringVar(&videoDir, "d", ".", "Directory containing video files (shorthand)")
 	flag.Parse()
 
 	initVideoList()
+
+	// Open the browser to localhost
+	openBrowser("http://localhost:8080")
 
 	// Serve the index.html directly at root
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -78,12 +86,6 @@ func handleVideoList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 {
-		limit = 10
-	}
-
 	typesParam := r.URL.Query().Get("types")
 	var allowedTypes map[string]bool
 	if typesParam != "" {
@@ -111,13 +113,8 @@ func handleVideoList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	start := (page * limit) % total
-
-	var result []string
-	for i := 0; i < limit; i++ {
-		idx := (start + i) % total
-		result = append(result, filteredVideos[idx])
-	}
+	randomIndex := rand.Intn(total)
+	result := []string{filteredVideos[randomIndex]}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
