@@ -1,0 +1,7 @@
+*.png
+*.jpg
+*.gif
+*.mp4
+*.webm
+.idea
+.DS_Store

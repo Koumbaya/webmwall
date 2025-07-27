@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WEBM Viewer</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #111;
+      color: #eee;
+    }
+    #controls {
+      padding: 10px;
+      position: sticky;
+      top: 0;
+      background: #222;
+      z-index: 10;
+      border-bottom: 1px solid #333;
+      color: #eee;
+    }
+    .container {
+      columns: var(--columns, 3);
+      column-gap: 10px;
+      padding: 10px;
+    }
+    .grid-item {
+      width: 100%;
+      margin-bottom: 10px;
+      border-radius: 16px;
+      background: #222;
+      transition: height 1.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .grid-item video, .grid-item img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: contain;
+      position: static;
+      top: unset;
+      left: unset;
+      background: #111;
+      transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    video, img {
+      width: 100%;
+      height: auto;
+      display: block;
+      margin-bottom: 10px;
+      break-inside: avoid;
+      opacity: 0;
+      transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+      background: #111;
+    }
+    video.loaded, img.loaded {
+      opacity: 1;
+    }
+    .loading-indicator {
+      display: none;
+      text-align: center;
+      padding: 20px;
+      font-size: 16px;
+      color: #aaa;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .loading-indicator.active {
+      display: block;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+    .content-fade {
+      animation: fadeInUp 1.5s ease-out forwards;
+    }
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label for="count">Columns: <span id="countLabel">3</span></label>
+    <input type="range" min="1" max="6" value="3" id="count" />
+
+    <label for="autoscroll" style="margin-left: 20px;">
+      <input type="checkbox" id="autoscroll" />
+      Autoscroll
+    </label>
+
+    <div style="margin-left: 20px; display: inline-block;">
+      <span>Types: </span>
+      <label><input type="checkbox" id="filterGif" checked /> GIF</label>
+      <label style="margin-left: 10px;"><input type="checkbox" id="filterWebm" checked /> WEBM</label>
+      <label style="margin-left: 10px;"><input type="checkbox" id="filterMp4" checked /> MP4</label>
+      <label style="margin-left: 10px;"><input type="checkbox" id="filterImages" checked /> Images</label>
+    </div>
+
+    <label for="speed" style="margin-left: 20px;">
+      Change Speed:
+      <input type="range" min="0" max="2" value="1" id="speed" />
+      <span id="speedLabel">1x</span>
+    </label>
+  </div>
+
+  <div class="container" id="videoContainer"></div>
+  <div class="loading-indicator" id="loadingIndicator">Loading more content...</div>
+
+  <script type="module">
+    const container = document.getElementById('videoContainer');
+    const slider = document.getElementById('count');
+    const countLabel = document.getElementById('countLabel');
+    const filterGif = document.getElementById('filterGif');
+    const filterWebm = document.getElementById('filterWebm');
+    const filterMp4 = document.getElementById('filterMp4');
+    const filterImages = document.getElementById('filterImages');
+    const speedSlider = document.getElementById('speed');
+    const speedLabel = document.getElementById('speedLabel');
+
+    let columns = parseInt(slider.value);
+    let gridSize = columns * columns;
+    let speedCoef = 1;
+    const speedMap = [0.5, 1, 1.5];
+    container.style.setProperty('--columns', columns);
+
+    slider.addEventListener('input', () => {
+      columns = parseInt(slider.value);
+      countLabel.textContent = slider.value;
+      container.style.setProperty('--columns', columns);
+      gridSize = columns * columns;
+      resetContent();
+    });
+
+    speedSlider.addEventListener('input', () => {
+      speedCoef = speedMap[parseInt(speedSlider.value)];
+      speedLabel.textContent = speedCoef + 'x';
+    });
+
+    function getFilters() {
+      const filters = [];
+      if (filterGif.checked) filters.push('gif');
+      if (filterWebm.checked) filters.push('webm');
+      if (filterMp4.checked) filters.push('mp4');
+      if (filterImages.checked) filters.push('jpg', 'png');
+      return filters;
+    }
+
+    function resetContent() {
+      container.innerHTML = '';
+      initGrid();
+    }
+
+    filterGif.addEventListener('change', resetContent);
+    filterWebm.addEventListener('change', resetContent);
+    filterMp4.addEventListener('change', resetContent);
+    filterImages.addEventListener('change', resetContent);
+
+    async function fetchRandomFile() {
+      const filters = getFilters();
+      const filterParam = filters.length > 0 ? `&types=${filters.join(',')}` : '';
+      // Use a random offset for variety
+      const offset = Math.floor(Math.random() * 10000);
+      const res = await fetch(`/api/videos?page=${offset}&limit=1${filterParam}`);
+      const files = await res.json();
+      return files[0];
+    }
+
+    function createGridItem() {
+      const el = document.createElement('div');
+      el.className = 'grid-item';
+      return el;
+    }
+
+    async function setGridItemContent(item) {
+      // Get current height
+      const prevHeight = item.offsetHeight;
+      item.style.height = prevHeight + 'px';
+      item.style.opacity = 0;
+      const url = await fetchRandomFile();
+      if (!url) return;
+      const isGif = url.toLowerCase().endsWith('.gif');
+      const isImage = url.toLowerCase().endsWith('.jpg') || url.toLowerCase().endsWith('.png');
+      item.innerHTML = '';
+      let media;
+      if (isGif || isImage) {
+        media = document.createElement('img');
+        media.src = url;
+        media.classList.add('content-fade');
+        media.onload = () => {
+          media.classList.add('loaded');
+          requestAnimationFrame(() => {
+            const newHeight = media.offsetHeight;
+            item.style.height = newHeight + 'px';
+            item.style.opacity = 1;
+            setTimeout(() => {
+              item.style.height = '';
+            }, 1000); // Slower transition
+          });
+        };
+        item.appendChild(media);
+        // Change every 4-8 seconds randomly, multiplied by speedCoef
+        const nextDelay = (4000 + Math.random() * 4000) * speedCoef;
+        setTimeout(() => setGridItemContent(item), nextDelay);
+      } else {
+        media = document.createElement('video');
+        media.src = url;
+        media.autoplay = true;
+        media.muted = true;
+        media.controls = true;
+        media.classList.add('content-fade');
+        media.onloadedmetadata = () => {
+          media.classList.add('loaded');
+          requestAnimationFrame(() => {
+            const newHeight = media.offsetHeight;
+            item.style.height = newHeight + 'px';
+            item.style.opacity = 1;
+            setTimeout(() => {
+              item.style.height = '';
+            }, 1000);
+          });
+        };
+        media.onended = () => {
+          setGridItemContent(item);
+        };
+        item.appendChild(media);
+      }
+    }
+
+    function checkAndFillBlankSpace() {
+      // Get container bottom relative to viewport
+      const containerRect = container.getBoundingClientRect();
+      const viewportBottom = window.innerHeight;
+      // Find the lowest bottom of all grid items
+      const items = Array.from(container.children);
+      let maxBottom = containerRect.top;
+      items.forEach(item => {
+        const rect = item.getBoundingClientRect();
+        if (rect.bottom > maxBottom) maxBottom = rect.bottom;
+      });
+      // If the lowest item is above the viewport bottom, add one more row per column
+      if (maxBottom < viewportBottom) {
+        for (let i = 0; i < columns; i++) {
+          const item = createGridItem();
+          container.appendChild(item);
+          setGridItemContent(item);
+        }
+        // Re-check in case more space remains
+        setTimeout(checkAndFillBlankSpace, 100);
+      }
+    }
+
+    // Call after grid is initialized and on resize
+    function onGridUpdate() {
+      checkAndFillBlankSpace();
+    }
+    window.addEventListener('resize', onGridUpdate);
+
+    async function initGrid() {
+      container.innerHTML = '';
+      for (let i = 0; i < gridSize; i++) {
+        const item = createGridItem();
+        container.appendChild(item);
+        setGridItemContent(item);
+      }
+      // After initial grid, fill blank space
+      setTimeout(onGridUpdate, 100);
+    }
+
+    initGrid();
+  </script>
+</body>
+</html>
