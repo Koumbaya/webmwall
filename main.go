@@ -68,7 +68,7 @@ func initVideoList() {
 
 	for _, entry := range entries {
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if !entry.IsDir() && (ext == ".webm" || ext == ".mp4" || ext == ".gif" || ext == ".jpg" || ext == ".jpeg" || ext == ".png") {
+		if !entry.IsDir() && (ext == ".webm" || ext == ".mp4" || ext == ".gif" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp") {
 			videoFiles = append(videoFiles, "/videos/"+entry.Name())
 		}
 	}
