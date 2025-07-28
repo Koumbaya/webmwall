@@ -72,6 +72,26 @@
     input[type="range"] {
       min-width: 80px;
     }
+    button {
+      background: #333;
+      border: 1px solid #555;
+      color: #eee;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #444;
+    }
+    button:active {
+      background: #555;
+    }
+    #pauseButton {
+      font-size: 16px;
+      padding: 6px 10px;
+    }
   </style>
 </head>
 <body>
@@ -82,8 +102,10 @@
     </div>
 
     <div class="control-group">
-      <label for="speedSlider">Speed: <span id="speedLabel">8</span></label>
-      <input type="range" min="0" max="50" value="8" id="speedSlider" />
+      <label>Speed: <span id="speedLabel">8</span></label>
+      <button id="speedDown">-</button>
+      <button id="pauseButton">⏸️</button>
+      <button id="speedUp">+</button>
     </div>
 
     <div class="control-group">
@@ -107,15 +129,17 @@
     const container = document.getElementById('videoContainer');
     const columnSlider = document.getElementById('count');
     const countLabel = document.getElementById('countLabel');
-    const speedSlider = document.getElementById('speedSlider');
     const speedLabel = document.getElementById('speedLabel');
     const filterGif = document.getElementById('filterGif');
     const filterWebm = document.getElementById('filterWebm');
     const filterMp4 = document.getElementById('filterMp4');
     const filterImages = document.getElementById('filterImages');
+    const speedUpButton = document.getElementById('speedUp');
+    const speedDownButton = document.getElementById('speedDown');
+    const pauseButton = document.getElementById('pauseButton');
 
     let columns = parseInt(columnSlider.value);
-    let scrollSpeed = parseInt(speedSlider.value);
+    let scrollSpeed = 8;
     let columnElements = [];
     let columnContents = [];
     let animationFrameId = null;
@@ -127,10 +151,26 @@
       resetGrid();
     });
 
-    speedSlider.addEventListener('input', () => {
-      scrollSpeed = parseInt(speedSlider.value);
-      speedLabel.textContent = speedSlider.value;
+    speedUpButton.addEventListener('click', () => {
+      scrollSpeed = Math.min(scrollSpeed + 1, 100);
+      speedLabel.textContent = scrollSpeed;
       updateScrollSpeed();
+    });
+
+    speedDownButton.addEventListener('click', () => {
+      scrollSpeed = Math.max(scrollSpeed - 1, 0);
+      speedLabel.textContent = scrollSpeed;
+      updateScrollSpeed();
+    });
+
+    pauseButton.addEventListener('click', () => {
+      if (isScrolling) {
+        stopScrolling();
+        pauseButton.textContent = '▶️';
+      } else {
+        startScrolling();
+        pauseButton.textContent = '⏸️';
+      }
     });
 
     function getFilters() {
@@ -138,7 +178,7 @@
       if (filterGif.checked) filters.push('gif');
       if (filterWebm.checked) filters.push('webm');
       if (filterMp4.checked) filters.push('mp4');
-      if (filterImages.checked) filters.push('jpg', 'png');
+      if (filterImages.checked) filters.push('jpg', 'png', 'bmp', 'jpeg');
       return filters;
     }
 
@@ -302,6 +342,20 @@
       filter.addEventListener('change', () => {
         resetGrid();
       });
+    });
+
+    // Handle keyboard controls
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') {
+        event.preventDefault(); // Prevent page scroll
+        if (isScrolling) {
+          stopScrolling();
+          pauseButton.textContent = '▶️';
+        } else {
+          startScrolling();
+          pauseButton.textContent = '⏸️';
+        }
+      }
     });
 
     // Handle visibility change to pause/resume scrolling
