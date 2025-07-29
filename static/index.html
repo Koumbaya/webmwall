@@ -13,12 +13,13 @@
       overflow: hidden;
     }
     #controls {
-      padding: 10px;
+      padding: 15px;
       position: fixed;
-      top: 0;
+      top: -80px;
       left: 0;
       right: 0;
-      background: #222;
+      background: rgba(34, 34, 34, 0.95);
+      backdrop-filter: blur(10px);
       z-index: 10;
       border-bottom: 1px solid #333;
       color: #eee;
@@ -26,6 +27,43 @@
       gap: 20px;
       align-items: center;
       flex-wrap: wrap;
+      transition: top 0.3s ease;
+    }
+    #controls.show {
+      top: 0;
+    }
+    #controls-trigger {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      width: 40px;
+      height: 40px;
+      background: rgba(34, 34, 34, 0.4);
+      border: 1px solid #555;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 11;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(5px);
+      opacity: 0.6;
+    }
+    #controls-trigger:hover {
+      background: rgba(68, 68, 68, 0.6);
+      transform: rotate(90deg);
+      opacity: 1;
+    }
+    #controls-trigger.hide {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .gear-icon {
+      width: 20px;
+      height: 20px;
+      background: url('gear.png') center/contain no-repeat;
+      filter: invert(1) brightness(0.9) opacity(0.7);
     }
     .control-group {
       display: flex;
@@ -36,8 +74,8 @@
       display: flex;
       gap: 10px;
       padding: 10px;
-      margin-top: 10px;
-      height: calc(100vh - 80px);
+      margin-top: 0;
+      height: 100vh;
       overflow: hidden;
     }
     .column {
@@ -92,44 +130,93 @@
       font-size: 16px;
       padding: 6px 10px;
     }
+    #muteButton, #pauseButton, #columnUp, #columnDown, #speedUp, #speedDown {
+      background: #333;
+      border: 1px solid #555;
+      color: #eee;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #muteButton img, #pauseButton img, #columnUp img, #columnDown img, #speedUp img, #speedDown img {
+      width: 16px;
+      height: 16px;
+      filter: invert(1) brightness(0.9);
+    }
+    .filter-button {
+      background: #333;
+      border: 2px solid transparent;
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .filter-button:hover {
+      background: #444;
+    }
+    .filter-button.active {
+      border-color: #666;
+      background: #3a3a3a;
+    }
+    .filter-button.inactive {
+      opacity: 0.4;
+    }
+    .filter-button img {
+      width: 20px;
+      height: 20px;
+      filter: invert(1) brightness(0.9);
+    }
   </style>
 </head>
 <body>
   <div id="controls">
     <div class="control-group">
-      <label for="count">Columns: <span id="countLabel">3</span></label>
-      <input type="range" min="1" max="6" value="3" id="count" />
+      <button id="columnDown"><img src="colminus.png" alt="Remove Column"></button>
+      <button id="columnUp"><img src="colplus.png" alt="Add Column"></button>
     </div>
 
     <div class="control-group">
-      <label>Speed: <span id="speedLabel">8</span></label>
-      <button id="speedDown">-</button>
-      <button id="pauseButton">⏸️</button>
-      <button id="speedUp">+</button>
+      <button id="speedDown"><img src="snail.png" alt="Decrease Speed"></button>
+      <button id="pauseButton"><img src="pause.png" alt="Pause"></button>
+      <button id="speedUp"><img src="hare.png" alt="Increase Speed"></button>
     </div>
 
     <div class="control-group">
-      <input type="checkbox" id="filterGif" checked />
-      <label for="filterGif">GIF</label>
-
-      <input type="checkbox" id="filterWebm" checked />
-      <label for="filterWebm">WEBM</label>
-
-      <input type="checkbox" id="filterMp4" checked />
-      <label for="filterMp4">MP4</label>
-
-      <input type="checkbox" id="filterImages" checked />
-      <label for="filterImages">Images</label>
+      <button id="muteButton"><img src="mute.png" alt="Mute"></button>
     </div>
+
+    <div class="control-group">
+      <div class="filter-button active" id="filterGif">
+        <img src="gif.png" alt="GIF">
+      </div>
+      <div class="filter-button active" id="filterWebm">
+        <img src="webm.png" alt="WEBM">
+      </div>
+      <div class="filter-button active" id="filterMp4">
+        <img src="mp4.png" alt="MP4">
+      </div>
+      <div class="filter-button active" id="filterImages">
+        <img src="jpg.png" alt="Images">
+      </div>
+    </div>
+  </div>
+
+  <div id="controls-trigger">
+    <div class="gear-icon"></div>
   </div>
 
   <div class="container" id="videoContainer"></div>
 
   <script type="module">
     const container = document.getElementById('videoContainer');
-    const columnSlider = document.getElementById('count');
-    const countLabel = document.getElementById('countLabel');
-    const speedLabel = document.getElementById('speedLabel');
     const filterGif = document.getElementById('filterGif');
     const filterWebm = document.getElementById('filterWebm');
     const filterMp4 = document.getElementById('filterMp4');
@@ -137,48 +224,64 @@
     const speedUpButton = document.getElementById('speedUp');
     const speedDownButton = document.getElementById('speedDown');
     const pauseButton = document.getElementById('pauseButton');
+    const columnUpButton = document.getElementById('columnUp');
+    const columnDownButton = document.getElementById('columnDown');
+    const muteButton = document.getElementById('muteButton');
 
-    let columns = parseInt(columnSlider.value);
+    let columns = 3;
     let scrollSpeed = 8;
     let columnElements = [];
     let columnContents = [];
     let animationFrameId = null;
     let isScrolling = false;
-
-    columnSlider.addEventListener('input', () => {
-      columns = parseInt(columnSlider.value);
-      countLabel.textContent = columnSlider.value;
-      resetGrid();
-    });
+    let isMuted = true;
 
     speedUpButton.addEventListener('click', () => {
       scrollSpeed = Math.min(scrollSpeed + 1, 100);
-      speedLabel.textContent = scrollSpeed;
       updateScrollSpeed();
     });
 
     speedDownButton.addEventListener('click', () => {
       scrollSpeed = Math.max(scrollSpeed - 1, 0);
-      speedLabel.textContent = scrollSpeed;
       updateScrollSpeed();
     });
 
     pauseButton.addEventListener('click', () => {
       if (isScrolling) {
         stopScrolling();
-        pauseButton.textContent = '▶️';
+        pauseButton.innerHTML = '<img src="play.png" alt="Play">';
       } else {
         startScrolling();
-        pauseButton.textContent = '⏸️';
+        pauseButton.innerHTML = '<img src="pause.png" alt="Pause">';
       }
+    });
+
+    columnUpButton.addEventListener('click', () => {
+      columns = Math.min(columns + 1, 6);
+      resetGrid();
+    });
+
+    columnDownButton.addEventListener('click', () => {
+      columns = Math.max(columns - 1, 1);
+      resetGrid();
+    });
+
+    muteButton.addEventListener('click', () => {
+      isMuted = !isMuted;
+      muteButton.innerHTML = isMuted ? '<img src="mute.png" alt="Mute">' : '<img src="unmute.png" alt="Unmute">';
+
+      // Toggle mute for all videos
+      document.querySelectorAll('video').forEach(video => {
+        video.muted = isMuted;
+      });
     });
 
     function getFilters() {
       const filters = [];
-      if (filterGif.checked) filters.push('gif');
-      if (filterWebm.checked) filters.push('webm');
-      if (filterMp4.checked) filters.push('mp4');
-      if (filterImages.checked) filters.push('jpg', 'png', 'bmp', 'jpeg');
+      if (filterGif.classList.contains('active')) filters.push('gif');
+      if (filterWebm.classList.contains('active')) filters.push('webm');
+      if (filterMp4.classList.contains('active')) filters.push('mp4');
+      if (filterImages.classList.contains('active')) filters.push('jpg', 'png', 'bmp', 'jpeg');
       return filters;
     }
 
@@ -233,7 +336,7 @@
         video.src = url;
         video.loop = true;
         video.autoplay = true;
-        video.muted = true;
+        video.muted = isMuted;
         item.appendChild(video);
       } else {
         const img = document.createElement('img');
@@ -339,7 +442,8 @@
 
     // Handle filter changes
     [filterGif, filterWebm, filterMp4, filterImages].forEach(filter => {
-      filter.addEventListener('change', () => {
+      filter.addEventListener('click', () => {
+        filter.classList.toggle('active');
         resetGrid();
       });
     });
@@ -350,10 +454,10 @@
         event.preventDefault(); // Prevent page scroll
         if (isScrolling) {
           stopScrolling();
-          pauseButton.textContent = '▶️';
+          pauseButton.innerHTML = '<img src="play.png" alt="Play">';
         } else {
           startScrolling();
-          pauseButton.textContent = '⏸️';
+          pauseButton.innerHTML = '<img src="pause.png" alt="Pause">';
         }
       }
     });
@@ -365,6 +469,30 @@
       } else {
         startScrolling();
       }
+    });
+
+    // Handle controls visibility
+    const controlsTrigger = document.getElementById('controls-trigger');
+    const controls = document.getElementById('controls');
+
+    controlsTrigger.addEventListener('mouseenter', () => {
+      controls.classList.add('show');
+      controlsTrigger.classList.add('hide');
+    });
+
+    controls.addEventListener('mouseleave', () => {
+      controls.classList.remove('show');
+      controlsTrigger.classList.remove('hide');
+    });
+
+    controlsTrigger.addEventListener('mouseleave', () => {
+      // Add a small delay to prevent flickering when moving to controls
+      setTimeout(() => {
+        if (!controls.matches(':hover')) {
+          controls.classList.remove('show');
+          controlsTrigger.classList.remove('hide');
+        }
+      }, 100);
     });
 
     // Initialize

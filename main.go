@@ -45,7 +45,19 @@ func main() {
 			w.Header().Set("Content-Type", "text/html")
 			w.Write(data)
 		} else {
-			http.NotFound(w, r)
+			// Check if it's a static file (PNG icons)
+			if strings.HasSuffix(r.URL.Path, ".png") {
+				filePath := "static" + r.URL.Path
+				data, err := staticFiles.ReadFile(filePath)
+				if err != nil {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "image/png")
+				w.Write(data)
+			} else {
+				http.NotFound(w, r)
+			}
 		}
 	})
 
