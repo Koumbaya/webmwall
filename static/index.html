@@ -53,7 +53,6 @@
     #controls-trigger:hover {
       background: rgba(68, 68, 68, 0.6);
       transform: rotate(90deg);
-      opacity: 1;
     }
     #controls-trigger.hide {
       opacity: 0;
@@ -95,9 +94,9 @@
     }
     .grid-item {
       width: 100%;
-      border-radius: 16px;
       background: #222;
       flex-shrink: 0;
+      border-radius: 4px;
     }
     .grid-item video, .grid-item img {
       width: 100%;
@@ -105,7 +104,7 @@
       display: block;
       object-fit: contain;
       background: #111;
-      border-radius: 16px;
+      border-radius: 4px;
     }
     input[type="range"] {
       min-width: 80px;
@@ -232,6 +231,7 @@
     let scrollSpeed = 8;
     let columnElements = [];
     let columnContents = [];
+    let columnLoading = [];
     let animationFrameId = null;
     let isScrolling = false;
     let isMuted = true;
@@ -290,6 +290,7 @@
       container.innerHTML = '';
       columnElements = [];
       columnContents = [];
+      columnLoading = [];
 
       for (let i = 0; i < columns; i++) {
         const column = document.createElement('div');
@@ -303,6 +304,7 @@
 
         columnElements[i] = column;
         columnContents[i] = columnContent;
+        columnLoading[i] = false;
 
         // Preload items for each column
         loadInitialItems(i);
@@ -313,9 +315,19 @@
 
     async function loadInitialItems(columnIndex) {
       const itemsToLoad = Math.ceil(window.innerHeight / 200) + 10; // Load enough items to fill screen plus buffer
+      const scrollUp = columnIndex % 2 === 0;
 
       for (let j = 0; j < itemsToLoad; j++) {
-        await addNewItemToColumn(columnIndex);
+        await addNewItemToColumn(columnIndex, !scrollUp, true);
+      }
+
+      if (!scrollUp) {
+        // For columns scrolling down, we need to set an initial negative transform
+        // so the "top" of the content is off-screen up, and it can scroll down.
+        const content = columnContents[columnIndex];
+        const totalHeight = Array.from(content.children).reduce((acc, child) => acc + child.offsetHeight + 10, 0);
+        const initialY = -(totalHeight - columnElements[columnIndex].offsetHeight);
+        content.style.transform = `translateY(${initialY}px)`;
       }
     }
 
@@ -347,13 +359,77 @@
       return item;
     }
 
-    async function addNewItemToColumn(columnIndex) {
+    async function addNewItemToColumn(columnIndex, addToTop = false, isInitialLoad = false) {
+      if (columnLoading[columnIndex]) return;
+      columnLoading[columnIndex] = true;
+
       try {
         const url = await fetchRandomFile();
         const item = createGridItem(url);
-        columnContents[columnIndex].appendChild(item);
+        const content = columnContents[columnIndex];
+
+        const mediaElement = item.querySelector('img, video');
+        if (mediaElement) {
+            try {
+                if (mediaElement.tagName === 'IMG') {
+                    await new Promise((resolve, reject) => {
+                        mediaElement.onload = resolve;
+                        mediaElement.onerror = reject;
+                    });
+                } else if (mediaElement.tagName === 'VIDEO') {
+                    await new Promise((resolve, reject) => {
+                        mediaElement.onloadedmetadata = resolve;
+                        mediaElement.onerror = reject;
+                    });
+                }
+            } catch (e) {
+                console.error("Media failed to load", e);
+            }
+        }
+
+        if (addToTop) {
+          if (!isInitialLoad) {
+            content.style.transition = 'none';
+          }
+
+          // Add item to a temporary container to measure its height
+          const tempContainer = document.createElement('div');
+          tempContainer.style.position = 'absolute';
+          tempContainer.style.visibility = 'hidden';
+          tempContainer.style.width = columnElements[columnIndex].offsetWidth + 'px';
+          document.body.appendChild(tempContainer);
+          tempContainer.appendChild(item);
+          const itemHeight = item.offsetHeight + 10;
+          tempContainer.removeChild(item);
+          document.body.removeChild(tempContainer);
+
+
+          // Get the latest scroll position right before making changes
+          const transform = getComputedStyle(content).transform;
+          let currentY = 0;
+          if (transform !== 'none') {
+            const matrix = transform.match(/matrix\(([^)]+)\)/);
+            if (matrix) {
+              currentY = parseFloat(matrix[1].split(',')[5]) || 0;
+            }
+          }
+
+          // Adjust scroll position and then insert the item
+          content.style.transform = `translateY(${currentY - itemHeight}px)`;
+          content.insertBefore(item, content.firstChild);
+
+          if (!isInitialLoad) {
+            content.offsetHeight;
+            content.style.transition = 'transform linear';
+          }
+
+        } else {
+          content.appendChild(item);
+        }
       } catch (error) {
         console.error('Failed to add item to column:', error);
+      } finally {
+        columnLoading[columnIndex] = false;
       }
     }
 
@@ -400,36 +476,51 @@
             }
           }
 
-          // Calculate new position
-          const scrollAmount = (scrollSpeed / 10); // Adjust scroll amount based on speed
-          const newY = currentY - scrollAmount;
+          const scrollAmount = (scrollSpeed / 10);
+          const scrollUp = columnIndex % 2 === 0;
 
-          content.style.transform = `translateY(${newY}px)`;
+          if (scrollUp) {
+            // Scrolling UP
+            let newY = currentY - scrollAmount;
+            content.style.transform = `translateY(${newY}px)`;
 
-          // Check if we need to remove items that have scrolled out of view
-          const firstChild = content.firstElementChild;
-          if (firstChild) {
-            const itemRect = firstChild.getBoundingClientRect();
-            const columnRect = column.getBoundingClientRect();
+            const firstChild = content.firstElementChild;
+            if (firstChild) {
+              const itemRect = firstChild.getBoundingClientRect();
+              const columnRect = column.getBoundingClientRect();
 
-            // If the item has completely scrolled out of view (with some buffer)
-            if (itemRect.bottom < columnRect.top - 100) {
-              // Get the height BEFORE removing the element
-              const itemHeight = firstChild.offsetHeight + 10; // 10px gap
+              if (itemRect.bottom < columnRect.top - 100) {
+                const itemHeight = firstChild.offsetHeight + 10;
+                content.removeChild(firstChild);
 
-              content.removeChild(firstChild);
+                // When an item is removed from the top, the whole content block shifts up.
+                // We need to adjust the transform downward by the same amount to compensate.
+                newY += itemHeight;
+                content.style.transform = `translateY(${newY}px)`;
 
-              // Adjust transform to account for removed item
-              content.style.transform = `translateY(${newY + itemHeight}px)`;
+                addNewItemToColumn(columnIndex, false); // Add to bottom
+              }
+            }
+          } else {
+            // Scrolling DOWN
+            let newY = currentY + scrollAmount;
+            content.style.transform = `translateY(${newY}px)`;
 
-              // Add a new item to the bottom
-              addNewItemToColumn(columnIndex);
+            const lastChild = content.lastElementChild;
+            if (lastChild) {
+              const itemRect = lastChild.getBoundingClientRect();
+              const columnRect = column.getBoundingClientRect();
+
+              if (itemRect.top > columnRect.bottom + 100) {
+                content.removeChild(lastChild);
+                addNewItemToColumn(columnIndex, true); // Add to top
+              }
             }
           }
 
           // Ensure we always have enough items in the column
-          if (content.children.length < 5) {
-            addNewItemToColumn(columnIndex);
+          if (content.children.length < 5 && !columnLoading[columnIndex]) {
+            addNewItemToColumn(columnIndex, !scrollUp);
           }
         });
 
