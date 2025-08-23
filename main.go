@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
@@ -67,6 +68,9 @@ func main() {
 	// API endpoint to list videos
 	http.HandleFunc("/api/videos", handleVideoList)
 
+	// API endpoint to delete files
+	http.HandleFunc("/api/delete", handleDeleteFile)
+
 	log.Printf("Serving videos from: %s", videoDir)
 	log.Println("Serving on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -80,7 +84,7 @@ func initVideoList() {
 
 	for _, entry := range entries {
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if !entry.IsDir() && (ext == ".webm" || ext == ".mp4" || ext == ".gif" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp") {
+		if !entry.IsDir() && (ext == ".webm" || ext == ".mp4" || ext == ".gif" || ext == ".jpg" || ext == ".webp" || ext == ".jpeg" || ext == ".png" || ext == ".bmp") {
 			videoFiles = append(videoFiles, "/videos/"+entry.Name())
 		}
 	}
@@ -130,4 +134,57 @@ func handleVideoList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		http.Error(w, "File path is required", http.StatusBadRequest)
+		return
+	}
+
+	// Convert URL path to filesystem path
+	// filePath will be like "/videos/filename.ext"
+	if !strings.HasPrefix(filePath, "/videos/") {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	// Extract filename and build actual filesystem path
+	filename := strings.TrimPrefix(filePath, "/videos/")
+	actualPath := filepath.Join(videoDir, filename)
+
+	// Sanitize the path to prevent directory traversal
+	cleanPath := filepath.Clean(actualPath)
+
+	// Check if file exists
+	if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Delete the file
+	err := os.Remove(cleanPath)
+	if err != nil {
+		fmt.Printf("Failed to delete file %s: %v", cleanPath, err)
+		http.Error(w, fmt.Sprintf("Failed to delete file %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Deleted file: %s", cleanPath)
+
+	// Remove from video files list
+	for i, videoFile := range videoFiles {
+		if videoFile == filePath {
+			videoFiles = append(videoFiles[:i], videoFiles[i+1:]...)
+			break
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
