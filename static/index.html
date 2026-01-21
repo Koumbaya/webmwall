@@ -130,7 +130,7 @@
       font-size: 16px;
       padding: 6px 10px;
     }
-    #muteButton, #pauseButton, #columnUp, #columnDown, #speedUp, #speedDown {
+    #muteButton, #pauseButton, #columnUp, #columnDown {
       background: #333;
       border: 1px solid #555;
       color: #eee;
@@ -143,10 +143,30 @@
       align-items: center;
       justify-content: center;
     }
-    #muteButton img, #pauseButton img, #columnUp img, #columnDown img, #speedUp img, #speedDown img {
+    #muteButton img, #pauseButton img, #columnUp img, #columnDown img {
       width: 16px;
       height: 16px;
       filter: invert(1) brightness(0.9);
+    }
+    .speed-btn {
+      background: #333;
+      border: 1px solid #555;
+      color: #eee;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      transition: all 0.2s;
+      min-width: 40px;
+    }
+    .speed-btn:hover {
+      background: #444;
+    }
+    .speed-btn.active {
+      background: #555;
+      border-color: #888;
+      color: #fff;
     }
     .filter-button {
       background: #333;
@@ -288,9 +308,10 @@
     </div>
 
     <div class="control-group">
-      <button id="speedDown"><img src="snail.png" alt="Decrease Speed"></button>
+      <button id="speed2x" class="speed-btn">2x</button>
+      <button id="speed4x" class="speed-btn">4x</button>
+      <button id="speed6x" class="speed-btn">6x</button>
       <button id="pauseButton"><img src="pause.png" alt="Pause"></button>
-      <button id="speedUp"><img src="hare.png" alt="Increase Speed"></button>
     </div>
 
     <div class="control-group">
@@ -336,8 +357,9 @@
     const filterWebm = document.getElementById('filterWebm');
     const filterMp4 = document.getElementById('filterMp4');
     const filterImages = document.getElementById('filterImages');
-    const speedUpButton = document.getElementById('speedUp');
-    const speedDownButton = document.getElementById('speedDown');
+    const speed2xButton = document.getElementById('speed2x');
+    const speed4xButton = document.getElementById('speed4x');
+    const speed6xButton = document.getElementById('speed6x');
     const pauseButton = document.getElementById('pauseButton');
     const columnUpButton = document.getElementById('columnUp');
     const columnDownButton = document.getElementById('columnDown');
@@ -347,7 +369,9 @@
     const cancelDeleteButton = document.getElementById('cancelDeleteButton');
 
     let columns = 3;
-    let scrollSpeed = 8;
+    const baseSpeed = 16;
+    let scrollSpeed = baseSpeed;
+    let currentMultiplier = null;
     let columnElements = [];
     let columnContents = [];
     let columnLoading = [];
@@ -355,15 +379,28 @@
     let isScrolling = false;
     let isMuted = true;
 
-    speedUpButton.addEventListener('click', () => {
-      scrollSpeed = Math.min(scrollSpeed + 1, 100);
-      updateScrollSpeed();
-    });
+    function setSpeed(multiplier) {
+      const speedMap = { '2x': 2, '4x': 4, '6x': 6 };
 
-    speedDownButton.addEventListener('click', () => {
-      scrollSpeed = Math.max(scrollSpeed - 1, 0);
-      updateScrollSpeed();
-    });
+      // Toggle off if clicking the same button
+      if (currentMultiplier === multiplier) {
+        scrollSpeed = baseSpeed;
+        currentMultiplier = null;
+        [speed2xButton, speed4xButton, speed6xButton].forEach(btn => btn.classList.remove('active'));
+        return;
+      }
+
+      scrollSpeed = baseSpeed * speedMap[multiplier];
+      currentMultiplier = multiplier;
+
+      // Update button states
+      [speed2xButton, speed4xButton, speed6xButton].forEach(btn => btn.classList.remove('active'));
+      document.getElementById(`speed${multiplier}`).classList.add('active');
+    }
+
+    speed2xButton.addEventListener('click', () => setSpeed('2x'));
+    speed4xButton.addEventListener('click', () => setSpeed('4x'));
+    speed6xButton.addEventListener('click', () => setSpeed('6x'));
 
     pauseButton.addEventListener('click', () => {
       if (isScrolling) {
@@ -556,10 +593,6 @@
       } finally {
         columnLoading[columnIndex] = false;
       }
-    }
-
-    function updateScrollSpeed() {
-      // No need to restart scrolling, just update the speed
     }
 
     function startScrolling() {
