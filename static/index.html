@@ -143,10 +143,27 @@
       align-items: center;
       justify-content: center;
     }
-    #muteButton img, #pauseButton img, #columnUp img, #columnDown img {
+    #muteButton img, #pauseButton img, #columnUp img, #columnDown img, #exitButton img {
       width: 16px;
       height: 16px;
       filter: invert(1) brightness(0.9);
+    }
+    #exitButton {
+      background: #333;
+      border: 1px solid #555;
+      color: #eee;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #exitButton:hover {
+      background: #dc3545;
+      border-color: #c82333;
     }
     .speed-btn {
       background: #333;
@@ -332,6 +349,10 @@
         <img src="jpg.png" alt="Images">
       </div>
     </div>
+
+    <div class="control-group" style="margin-left: auto;">
+      <button id="exitButton" title="Exit application"><img src="exit.svg" alt="Exit"></button>
+    </div>
   </div>
 
   <div id="controls-trigger">
@@ -378,6 +399,7 @@
     let animationFrameId = null;
     let isScrolling = false;
     let isMuted = true;
+    let unmutedVideo = null; // Track the single unmuted video element
 
     function setSpeed(multiplier) {
       const speedMap = { '2x': 2, '4x': 4, '6x': 6 };
@@ -422,14 +444,35 @@
       resetGrid();
     });
 
+    function unmuteRandomVideo() {
+      // Mute the previously unmuted video if any
+      if (unmutedVideo) {
+        unmutedVideo.muted = true;
+        unmutedVideo = null;
+      }
+
+      const videos = Array.from(document.querySelectorAll('video'));
+      if (videos.length === 0) return;
+
+      const pick = videos[Math.floor(Math.random() * videos.length)];
+      pick.muted = false;
+      unmutedVideo = pick;
+    }
+
     muteButton.addEventListener('click', () => {
       isMuted = !isMuted;
       muteButton.innerHTML = isMuted ? '<img src="mute.png" alt="Mute">' : '<img src="unmute.png" alt="Unmute">';
 
-      // Toggle mute for all videos
-      document.querySelectorAll('video').forEach(video => {
-        video.muted = isMuted;
-      });
+      if (isMuted) {
+        // Mute everything
+        if (unmutedVideo) {
+          unmutedVideo.muted = true;
+          unmutedVideo = null;
+        }
+      } else {
+        // Unmute a single random video
+        unmuteRandomVideo();
+      }
     });
 
     function getFilters() {
@@ -447,6 +490,7 @@
       columnElements = [];
       columnContents = [];
       columnLoading = [];
+      unmutedVideo = null;
 
       for (let i = 0; i < columns; i++) {
         const column = document.createElement('div');
@@ -467,6 +511,11 @@
       }
 
       startScrolling();
+
+      // Re-pick an unmuted video after grid rebuild
+      if (!isMuted) {
+        setTimeout(() => unmuteRandomVideo(), 500);
+      }
     }
 
     async function loadInitialItems(columnIndex) {
@@ -505,7 +554,7 @@
         video.src = url;
         video.loop = true;
         video.autoplay = true;
-        video.muted = isMuted;
+        video.muted = true; // Always muted; unmute is handled per-video
         item.appendChild(video);
       } else {
         const img = document.createElement('img');
@@ -649,7 +698,14 @@
 
               if (itemRect.bottom < columnRect.top - 100) {
                 const itemHeight = firstChild.offsetHeight + 10;
+                const removedVideo = firstChild.querySelector('video');
                 content.removeChild(firstChild);
+
+                // If the removed item had the unmuted video, pick a new one
+                if (removedVideo && removedVideo === unmutedVideo) {
+                  unmutedVideo = null;
+                  if (!isMuted) unmuteRandomVideo();
+                }
 
                 // When an item is removed from the top, the whole content block shifts up.
                 // We need to adjust the transform downward by the same amount to compensate.
@@ -670,7 +726,15 @@
               const columnRect = column.getBoundingClientRect();
 
               if (itemRect.top > columnRect.bottom + 100) {
+                const removedVideo = lastChild.querySelector('video');
                 content.removeChild(lastChild);
+
+                // If the removed item had the unmuted video, pick a new one
+                if (removedVideo && removedVideo === unmutedVideo) {
+                  unmutedVideo = null;
+                  if (!isMuted) unmuteRandomVideo();
+                }
+
                 addNewItemToColumn(columnIndex, true); // Add to top
               }
             }
@@ -794,6 +858,13 @@
             const content = itemToDelete.parentNode;
             const columnIndex = Array.from(container.children).indexOf(content.parentNode);
 
+            // Check if deleted item had the unmuted video
+            const deletedVideo = itemToDelete.querySelector('video');
+            if (deletedVideo && deletedVideo === unmutedVideo) {
+              unmutedVideo = null;
+              if (!isMuted) unmuteRandomVideo();
+            }
+
             // Remove the item from the column
             content.removeChild(itemToDelete);
 
@@ -831,6 +902,17 @@
         startScrolling();
         pauseButton.innerHTML = '<img src="pause.png" alt="Pause">';
       }
+    });
+
+    // Exit button
+    document.getElementById('exitButton').addEventListener('click', async () => {
+      try {
+        await fetch('/api/exit', { method: 'POST' });
+      } catch (e) {
+        // Expected - server shuts down so the request may fail
+      }
+      // Try to close the tab (works if the page was opened by window.open / script)
+      window.close();
     });
 
     // Initialize

@@ -47,14 +47,18 @@ func main() {
 			w.Write(data)
 		} else {
 			// Check if it's a static file (PNG icons)
-			if strings.HasSuffix(r.URL.Path, ".png") {
+			if strings.HasSuffix(r.URL.Path, ".png") || strings.HasSuffix(r.URL.Path, ".svg") {
 				filePath := "static" + r.URL.Path
 				data, err := staticFiles.ReadFile(filePath)
 				if err != nil {
 					http.NotFound(w, r)
 					return
 				}
-				w.Header().Set("Content-Type", "image/png")
+				if strings.HasSuffix(r.URL.Path, ".svg") {
+					w.Header().Set("Content-Type", "image/svg+xml")
+				} else {
+					w.Header().Set("Content-Type", "image/png")
+				}
 				w.Write(data)
 			} else {
 				http.NotFound(w, r)
@@ -70,6 +74,9 @@ func main() {
 
 	// API endpoint to delete files
 	http.HandleFunc("/api/delete", handleDeleteFile)
+
+	// API endpoint to exit the application
+	http.HandleFunc("/api/exit", handleExit)
 
 	log.Printf("Serving videos from: %s", videoDir)
 	log.Println("Serving on http://localhost:8080")
@@ -187,4 +194,21 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleExit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	log.Println("Exit requested from frontend. Shutting down...")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Goodbye"))
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	os.Exit(0)
 }
