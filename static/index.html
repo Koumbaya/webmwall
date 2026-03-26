@@ -253,6 +253,50 @@
       transform: scale(1.1);
     }
 
+    .pin-overlay {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 24px;
+      height: 24px;
+      background: rgba(100, 149, 237, 0.4);
+      border: 1px solid rgba(100, 149, 237, 0.8);
+      border-radius: 50%;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      backdrop-filter: blur(5px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 5;
+    }
+
+    .grid-item:hover .pin-overlay {
+      opacity: 1;
+    }
+
+    .pin-overlay:hover {
+      background: rgba(100, 149, 237, 0.6);
+      transform: scale(1.1);
+    }
+
+    .pin-overlay.pinned {
+      opacity: 1;
+      background: rgba(100, 149, 237, 0.7);
+    }
+
+    .pin-overlay::before {
+      content: '⊕';
+      color: #fff;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .pin-overlay.pinned::before {
+      content: '⊗';
+    }
+
     .delete-modal {
       position: fixed;
       top: 0;
@@ -400,6 +444,7 @@
     let isScrolling = false;
     let isMuted = true;
     let unmutedVideo = null; // Track the single unmuted video element
+    const pinnedItems = new Map(); // item element → { spacer, columnIndex }
 
     function setSpeed(multiplier) {
       const speedMap = { '2x': 2, '4x': 4, '6x': 6 };
@@ -486,6 +531,7 @@
 
     function resetGrid() {
       stopScrolling();
+      pinnedItems.clear();
       container.innerHTML = '';
       columnElements = [];
       columnContents = [];
@@ -561,6 +607,20 @@
         img.src = url;
         item.appendChild(img);
       }
+
+      // Add pin overlay
+      const pinOverlay = document.createElement('div');
+      pinOverlay.className = 'pin-overlay';
+      item.appendChild(pinOverlay);
+
+      pinOverlay.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (pinnedItems.has(item)) {
+          unpinItem(item);
+        } else {
+          pinItem(item);
+        }
+      });
 
       // Add delete overlay
       const deleteOverlay = document.createElement('div');
@@ -642,6 +702,47 @@
       } finally {
         columnLoading[columnIndex] = false;
       }
+    }
+
+    function pinItem(item) {
+      const content = item.parentElement;
+      const column = content.parentElement;
+      const columnIndex = columnContents.indexOf(content);
+
+      const itemRect = item.getBoundingClientRect();
+      const columnRect = column.getBoundingClientRect();
+      const topOffset = itemRect.top - columnRect.top;
+
+      // Create a spacer that holds the gap in the flow while item is pinned
+      const spacer = document.createElement('div');
+      spacer.style.height = item.offsetHeight + 'px';
+      spacer.style.flexShrink = '0';
+      content.replaceChild(spacer, item);
+
+      // Float item absolutely over the column at its current visual position
+      item.style.position = 'absolute';
+      item.style.top = topOffset + 'px';
+      item.style.left = '0';
+      item.style.width = '100%';
+      item.style.boxSizing = 'border-box';
+      item.style.zIndex = '3';
+      column.appendChild(item);
+
+      const pinOverlay = item.querySelector('.pin-overlay');
+      pinOverlay.classList.add('pinned');
+
+      pinnedItems.set(item, { spacer, columnIndex });
+    }
+
+    function unpinItem(item) {
+      const { spacer } = pinnedItems.get(item);
+      pinnedItems.delete(item);
+
+      if (spacer.parentNode) spacer.parentNode.removeChild(spacer);
+
+      item.style.transition = 'opacity 0.3s ease';
+      item.style.opacity = '0';
+      setTimeout(() => item.parentNode && item.parentNode.removeChild(item), 300);
     }
 
     function startScrolling() {
@@ -893,8 +994,16 @@
 
           if (response.ok) {
             // File successfully deleted from server
-            const content = itemToDelete.parentNode;
-            const columnIndex = Array.from(container.children).indexOf(content.parentNode);
+            let columnIndex;
+            if (pinnedItems.has(itemToDelete)) {
+              const pinData = pinnedItems.get(itemToDelete);
+              columnIndex = pinData.columnIndex;
+              if (pinData.spacer.parentNode) pinData.spacer.parentNode.removeChild(pinData.spacer);
+              pinnedItems.delete(itemToDelete);
+            } else {
+              const content = itemToDelete.parentNode;
+              columnIndex = Array.from(container.children).indexOf(content.parentNode);
+            }
 
             // Check if deleted item had the unmuted video
             const deletedVideo = itemToDelete.querySelector('video');
@@ -903,8 +1012,8 @@
               if (!isMuted) unmuteRandomVideo();
             }
 
-            // Remove the item from the column
-            content.removeChild(itemToDelete);
+            // Remove the item from the DOM (works whether pinned or not)
+            itemToDelete.parentNode.removeChild(itemToDelete);
 
             // Add a new item to replace the deleted one
             addNewItemToColumn(columnIndex, false);
