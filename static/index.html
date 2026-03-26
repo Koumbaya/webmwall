@@ -775,6 +775,22 @@
       }
     });
 
+    // Manual scroll via mouse wheel when paused
+    document.addEventListener('wheel', (e) => {
+      if (isScrolling) return;
+      e.preventDefault();
+      const delta = e.deltaY;
+      columnContents.forEach((content) => {
+        const transform = getComputedStyle(content).transform;
+        let currentY = 0;
+        if (transform !== 'none') {
+          const matrix = transform.match(/matrix\(([^)]+)\)/);
+          if (matrix) currentY = parseFloat(matrix[1].split(',')[5]) || 0;
+        }
+        content.style.transform = `translateY(${currentY - delta}px)`;
+      });
+    }, { passive: false });
+
     // Handle visibility change to pause/resume scrolling
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
