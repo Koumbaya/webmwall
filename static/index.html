@@ -793,9 +793,31 @@
       controlsTrigger.classList.add('hide');
     });
 
+    let bufferTracker = null;
+
+    function stopBufferTracking() {
+      if (bufferTracker) {
+        document.removeEventListener('mousemove', bufferTracker);
+        bufferTracker = null;
+      }
+    }
+
     controls.addEventListener('mouseleave', () => {
-      controls.classList.remove('show');
-      controlsTrigger.classList.remove('hide');
+      if (bufferTracker) return;
+      bufferTracker = (e) => {
+        const rect = controls.getBoundingClientRect();
+        const inBuffer =
+          e.clientY > rect.bottom &&
+          e.clientY <= rect.bottom + 150 &&
+          e.clientX >= rect.left &&
+          e.clientX <= rect.right;
+        if (!controls.matches(':hover') && !inBuffer) {
+          controls.classList.remove('show');
+          controlsTrigger.classList.remove('hide');
+          stopBufferTracking();
+        }
+      };
+      document.addEventListener('mousemove', bufferTracker);
     });
 
     controlsTrigger.addEventListener('mouseleave', () => {
