@@ -54,7 +54,7 @@
       background: rgba(68, 68, 68, 0.6);
       transform: rotate(90deg);
     }
-    #controls-trigger.hide {
+    #controls-trigger.hide, #exit-trigger.hide {
       opacity: 0;
       pointer-events: none;
     }
@@ -62,6 +62,35 @@
       width: 20px;
       height: 20px;
       background: url('gear.png') center/contain no-repeat;
+      filter: invert(1) brightness(0.9) opacity(0.7);
+    }
+    #exit-trigger {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      width: 40px;
+      height: 40px;
+      background: rgba(34, 34, 34, 0.4);
+      border: 1px solid #555;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 11;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(5px);
+      opacity: 0.6;
+    }
+    #exit-trigger:hover {
+      background: rgba(220, 53, 69, 0.6);
+      border-color: #c82333;
+      opacity: 1;
+    }
+    .exit-icon {
+      width: 20px;
+      height: 20px;
+      background: url('exit.svg') center/contain no-repeat;
       filter: invert(1) brightness(0.9) opacity(0.7);
     }
     .control-group {
@@ -143,7 +172,7 @@
       align-items: center;
       justify-content: center;
     }
-    #muteButton img, #pauseButton img, #columnUp img, #columnDown img, #exitButton img {
+    #muteButton img, #pauseButton img, #columnUp img, #columnDown img, #exitButton img, #directionButton img {
       width: 16px;
       height: 16px;
       filter: invert(1) brightness(0.9);
@@ -359,6 +388,42 @@
     .delete-cancel-btn:hover {
       background: #5a6268;
     }
+
+    #focusModal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+    }
+
+    #focusModal.show {
+      display: flex;
+    }
+
+    #focusContent {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 0 60px rgba(0, 0, 0, 0.8);
+      cursor: default;
+    }
+
+    #focusContent img,
+    #focusContent video {
+      display: block;
+      max-width: 90vw;
+      max-height: 90vh;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 6px;
+    }
   </style>
 </head>
 <body>
@@ -373,6 +438,7 @@
       <button id="speed4x" class="speed-btn">4x</button>
       <button id="speed6x" class="speed-btn">6x</button>
       <button id="pauseButton"><img src="pause.png" alt="Pause"></button>
+      <button id="directionButton" title="Scroll direction"><img src="alternate.png" alt="Alternate"></button>
     </div>
 
     <div class="control-group">
@@ -394,7 +460,8 @@
       </div>
     </div>
 
-    <div class="control-group" style="margin-left: auto;">
+    <div class="control-group" style="margin-left: auto; align-items: center; gap: 12px;">
+      <span id="fileCount" style="font-size: 12px; color: #888; white-space: nowrap;"></span>
       <button id="exitButton" title="Exit application"><img src="exit.svg" alt="Exit"></button>
     </div>
   </div>
@@ -403,7 +470,15 @@
     <div class="gear-icon"></div>
   </div>
 
+  <div id="exit-trigger">
+    <div class="exit-icon"></div>
+  </div>
+
   <div class="container" id="videoContainer"></div>
+
+  <div id="focusModal">
+    <div id="focusContent"></div>
+  </div>
 
   <div class="delete-modal" id="deleteModal">
     <div class="delete-modal-content">
@@ -426,12 +501,47 @@
     const speed4xButton = document.getElementById('speed4x');
     const speed6xButton = document.getElementById('speed6x');
     const pauseButton = document.getElementById('pauseButton');
+    const directionButton = document.getElementById('directionButton');
     const columnUpButton = document.getElementById('columnUp');
     const columnDownButton = document.getElementById('columnDown');
     const muteButton = document.getElementById('muteButton');
     const deleteModal = document.getElementById('deleteModal');
     const confirmDeleteButton = document.getElementById('confirmDeleteButton');
     const cancelDeleteButton = document.getElementById('cancelDeleteButton');
+
+    let mediaStats = null;
+    const fileCountEl = document.getElementById('fileCount');
+
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/stats');
+        mediaStats = await res.json();
+        updateFileCount();
+      } catch (e) {
+        console.error('Failed to fetch stats', e);
+      }
+    }
+
+    function updateFileCount() {
+      if (!mediaStats) return;
+      let count = 0;
+      if (filterGif.classList.contains('active'))    count += mediaStats.gif;
+      if (filterWebm.classList.contains('active'))   count += mediaStats.webm;
+      if (filterMp4.classList.contains('active'))    count += mediaStats.mp4;
+      if (filterImages.classList.contains('active')) count += mediaStats.images;
+      fileCountEl.textContent = `${count} files`;
+    }
+
+    function adjustStats(url, delta) {
+      if (!mediaStats) return;
+      const ext = url.split('.').pop().toLowerCase();
+      if (ext === 'gif')                                          mediaStats.gif    += delta;
+      else if (ext === 'webm')                                    mediaStats.webm   += delta;
+      else if (ext === 'mp4')                                     mediaStats.mp4    += delta;
+      else if (['jpg','jpeg','png','bmp','webp'].includes(ext))   mediaStats.images += delta;
+      mediaStats.total += delta;
+      updateFileCount();
+    }
 
     let columns = 3;
     const baseSpeed = 16;
@@ -440,8 +550,10 @@
     let columnElements = [];
     let columnContents = [];
     let columnLoading = [];
+    let columnJitter = [];
     let animationFrameId = null;
     let isScrolling = false;
+    let scrollDirection = 'alternate'; // 'alternate' | 'down' | 'up'
     let isMuted = true;
     let unmutedVideo = null; // Track the single unmuted video element
     const pinnedItems = new Map(); // item element → { spacer, columnIndex }
@@ -468,6 +580,16 @@
     speed2xButton.addEventListener('click', () => setSpeed('2x'));
     speed4xButton.addEventListener('click', () => setSpeed('4x'));
     speed6xButton.addEventListener('click', () => setSpeed('6x'));
+
+    const directionCycle = ['alternate', 'down', 'up'];
+    const directionIcons = { alternate: 'alternate.png', down: 'down.png', up: 'up.png' };
+
+    directionButton.addEventListener('click', () => {
+      const next = directionCycle[(directionCycle.indexOf(scrollDirection) + 1) % directionCycle.length];
+      scrollDirection = next;
+      directionButton.innerHTML = `<img src="${directionIcons[next]}" alt="${next}">`;
+      resetGrid();
+    });
 
     pauseButton.addEventListener('click', () => {
       if (isScrolling) {
@@ -536,6 +658,7 @@
       columnElements = [];
       columnContents = [];
       columnLoading = [];
+      columnJitter = [];
       unmutedVideo = null;
 
       for (let i = 0; i < columns; i++) {
@@ -551,6 +674,7 @@
         columnElements[i] = column;
         columnContents[i] = columnContent;
         columnLoading[i] = false;
+        columnJitter[i] = 1 + (Math.random() * 0.06 - 0.03);
 
         // Preload items for each column
         loadInitialItems(i);
@@ -564,9 +688,15 @@
       }
     }
 
+    function isScrollUp(columnIndex) {
+      if (scrollDirection === 'up') return true;
+      if (scrollDirection === 'down') return false;
+      return columnIndex % 2 === 0;
+    }
+
     async function loadInitialItems(columnIndex) {
       const itemsToLoad = Math.ceil(window.innerHeight / 200) + 10; // Load enough items to fill screen plus buffer
-      const scrollUp = columnIndex % 2 === 0;
+      const scrollUp = isScrollUp(columnIndex);
 
       for (let j = 0; j < itemsToLoad; j++) {
         await addNewItemToColumn(columnIndex, !scrollUp, true);
@@ -784,8 +914,9 @@
             }
           }
 
-          const scrollAmount = (scrollSpeed / 10);
-          const scrollUp = columnIndex % 2 === 0;
+          const jitter = scrollDirection !== 'alternate' ? columnJitter[columnIndex] : 1;
+          const scrollAmount = (scrollSpeed / 10) * jitter;
+          const scrollUp = isScrollUp(columnIndex);
 
           if (scrollUp) {
             // Scrolling UP
@@ -858,6 +989,7 @@
     [filterGif, filterWebm, filterMp4, filterImages].forEach(filter => {
       filter.addEventListener('click', () => {
         filter.classList.toggle('active');
+        updateFileCount();
         resetGrid();
       });
     });
@@ -903,11 +1035,13 @@
 
     // Handle controls visibility
     const controlsTrigger = document.getElementById('controls-trigger');
+    const exitTrigger = document.getElementById('exit-trigger');
     const controls = document.getElementById('controls');
 
     controlsTrigger.addEventListener('mouseenter', () => {
       controls.classList.add('show');
       controlsTrigger.classList.add('hide');
+      exitTrigger.classList.add('hide');
     });
 
     let bufferTracker = null;
@@ -931,6 +1065,7 @@
         if (!controls.matches(':hover') && !inBuffer) {
           controls.classList.remove('show');
           controlsTrigger.classList.remove('hide');
+          exitTrigger.classList.remove('hide');
           stopBufferTracking();
         }
       };
@@ -943,6 +1078,7 @@
         if (!controls.matches(':hover')) {
           controls.classList.remove('show');
           controlsTrigger.classList.remove('hide');
+          exitTrigger.classList.remove('hide');
         }
       }, 100);
     });
@@ -993,6 +1129,7 @@
           });
 
           if (response.ok) {
+            adjustStats(url, -1);
             // File successfully deleted from server
             let columnIndex;
             if (pinnedItems.has(itemToDelete)) {
@@ -1051,8 +1188,51 @@
       }
     });
 
-    // Exit button
-    document.getElementById('exitButton').addEventListener('click', async () => {
+    // Focus / lightbox mode
+    const focusModal = document.getElementById('focusModal');
+    const focusContent = document.getElementById('focusContent');
+
+    function openFocus(url) {
+      focusContent.innerHTML = '';
+      let media;
+      if (url.endsWith('.webm') || url.endsWith('.mp4')) {
+        media = document.createElement('video');
+        media.src = url;
+        media.autoplay = true;
+        media.loop = true;
+        media.muted = isMuted;
+        media.controls = true;
+      } else {
+        media = document.createElement('img');
+        media.src = url;
+      }
+      focusContent.appendChild(media);
+      focusModal.classList.add('show');
+      stopScrolling();
+      pauseButton.innerHTML = '<img src="play.png" alt="Play">';
+    }
+
+    function closeFocus() {
+      focusModal.classList.remove('show');
+      focusContent.innerHTML = '';
+      startScrolling();
+      pauseButton.innerHTML = '<img src="pause.png" alt="Pause">';
+    }
+
+    focusModal.addEventListener('click', (e) => {
+      if (e.target === focusModal) closeFocus();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && focusModal.classList.contains('show')) closeFocus();
+    });
+
+    container.addEventListener('dblclick', (e) => {
+      const item = e.target.closest('.grid-item');
+      if (item) openFocus(item.dataset.url);
+    });
+
+    async function exitApp() {
       try {
         await fetch('/api/exit', { method: 'POST' });
       } catch (e) {
@@ -1060,9 +1240,16 @@
       }
       // Try to close the tab (works if the page was opened by window.open / script)
       window.close();
-    });
+    }
+
+    // Exit button in controls panel
+    document.getElementById('exitButton').addEventListener('click', exitApp);
+
+    // Persistent exit trigger (top right)
+    document.getElementById('exit-trigger').addEventListener('click', exitApp);
 
     // Initialize
+    fetchStats();
     resetGrid();
   </script>
 </body>
