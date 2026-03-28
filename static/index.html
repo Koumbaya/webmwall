@@ -653,7 +653,11 @@
 
     function resetGrid() {
       stopScrolling();
+      pinnedItems.forEach((_, item) => releaseItem(item));
       pinnedItems.clear();
+      columnContents.forEach(content => {
+        Array.from(content.children).forEach(releaseItem);
+      });
       container.innerHTML = '';
       columnElements = [];
       columnContents = [];
@@ -758,6 +762,15 @@
       item.appendChild(deleteOverlay);
 
       return item;
+    }
+
+    function releaseItem(item) {
+      const video = item.querySelector('video');
+      if (video) {
+        video.pause();
+        video.src = '';
+        video.load();
+      }
     }
 
     async function addNewItemToColumn(columnIndex, addToTop = false, isInitialLoad = false) {
@@ -872,7 +885,12 @@
 
       item.style.transition = 'opacity 0.3s ease';
       item.style.opacity = '0';
-      setTimeout(() => item.parentNode && item.parentNode.removeChild(item), 300);
+      setTimeout(() => {
+        if (item.parentNode) {
+          releaseItem(item);
+          item.parentNode.removeChild(item);
+        }
+      }, 300);
     }
 
     function startScrolling() {
@@ -931,6 +949,7 @@
               if (itemRect.bottom < columnRect.top - 100) {
                 const itemHeight = firstChild.offsetHeight + 10;
                 const removedVideo = firstChild.querySelector('video');
+                releaseItem(firstChild);
                 content.removeChild(firstChild);
 
                 // If the removed item had the unmuted video, pick a new one
@@ -959,6 +978,7 @@
 
               if (itemRect.top > columnRect.bottom + 100) {
                 const removedVideo = lastChild.querySelector('video');
+                releaseItem(lastChild);
                 content.removeChild(lastChild);
 
                 // If the removed item had the unmuted video, pick a new one
@@ -1150,6 +1170,7 @@
             }
 
             // Remove the item from the DOM (works whether pinned or not)
+            releaseItem(itemToDelete);
             itemToDelete.parentNode.removeChild(itemToDelete);
 
             // Add a new item to replace the deleted one
@@ -1214,6 +1235,12 @@
 
     function closeFocus() {
       focusModal.classList.remove('show');
+      const focusVideo = focusContent.querySelector('video');
+      if (focusVideo) {
+        focusVideo.pause();
+        focusVideo.src = '';
+        focusVideo.load();
+      }
       focusContent.innerHTML = '';
       startScrolling();
       pauseButton.innerHTML = '<img src="pause.png" alt="Pause">';
