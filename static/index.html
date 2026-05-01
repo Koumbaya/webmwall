@@ -172,10 +172,15 @@
       align-items: center;
       justify-content: center;
     }
-    #muteButton img, #pauseButton img, #columnUp img, #columnDown img, #exitButton img, #directionButton img {
+    #muteButton img, #pauseButton img, #columnUp img, #columnDown img, #exitButton img, #directionButton img,
+    #rewindButton img, #shuffleButton img {
       width: 16px;
       height: 16px;
       filter: invert(1) brightness(0.9);
+    }
+    #rewindButton.active, #shuffleButton.active {
+      background: #555;
+      border-color: #888;
     }
     #exitButton {
       background: #333;
@@ -439,6 +444,8 @@
       <button id="speed6x" class="speed-btn">6x</button>
       <button id="pauseButton"><img src="pause.png" alt="Pause"></button>
       <button id="directionButton" title="Scroll direction"><img src="alternate.png" alt="Alternate"></button>
+      <button id="rewindButton" title="Reverse playback order"><img src="rewind.png" alt="Rewind"></button>
+      <button id="shuffleButton" title="Shuffle"><img src="shuffle.png" alt="Shuffle"></button>
     </div>
 
     <div class="control-group">
@@ -505,6 +512,8 @@
     const columnUpButton = document.getElementById('columnUp');
     const columnDownButton = document.getElementById('columnDown');
     const muteButton = document.getElementById('muteButton');
+    const rewindButton = document.getElementById('rewindButton');
+    const shuffleButton = document.getElementById('shuffleButton');
     const deleteModal = document.getElementById('deleteModal');
     const confirmDeleteButton = document.getElementById('confirmDeleteButton');
     const cancelDeleteButton = document.getElementById('cancelDeleteButton');
@@ -640,6 +649,18 @@
         // Unmute a single random video
         unmuteRandomVideo();
       }
+    });
+
+    rewindButton.addEventListener('click', async () => {
+      const res = await fetch('/api/rewind', { method: 'POST' });
+      const data = await res.json();
+      rewindButton.classList.toggle('active', data.active);
+    });
+
+    shuffleButton.addEventListener('click', async () => {
+      const res = await fetch('/api/shuffle', { method: 'POST' });
+      const data = await res.json();
+      shuffleButton.classList.toggle('active', data.active);
     });
 
     function getFilters() {
