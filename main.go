@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,9 +22,15 @@ const autoShutdownDelay = 60 * time.Second
 //go:embed static/*
 var staticFiles embed.FS
 
-var videoDir string
-var autoShutdown bool
-var videoFiles []string // Global slice to hold randomized video list
+var (
+	videoDir     string
+	autoShutdown bool
+	videoFiles   []string // Global slice to hold randomized video list
+	videoMu      sync.Mutex
+	videoIndex   int
+	isRewind     bool
+	isShuffle    bool
+)
 
 func openBrowser(url string) {
 	var cmd string
@@ -102,6 +109,12 @@ func main() {
 
 	// API endpoint to get file counts by type
 	http.HandleFunc("/api/stats", handleStats)
+
+	// API endpoint to toggle rewind (reverse sequential order)
+	http.HandleFunc("/api/rewind", handleRewind)
+
+	// API endpoint to toggle shuffle mode
+	http.HandleFunc("/api/shuffle", handleShuffle)
 
 	// API endpoint to exit the application
 	http.HandleFunc("/api/exit", handleExit)
@@ -184,8 +197,21 @@ func makeHandleVideosList(autoOff bool, timeC chan<- time.Time) func(http.Respon
 			return
 		}
 
-		randomIndex := rand.Intn(total)
-		result := []string{filteredVideos[randomIndex]}
+		videoMu.Lock()
+		var idx int
+		if isShuffle {
+			idx = rand.Intn(total)
+		} else {
+			idx = ((videoIndex % total) + total) % total
+			if isRewind {
+				videoIndex--
+			} else {
+				videoIndex++
+			}
+		}
+		videoMu.Unlock()
+
+		result := []string{filteredVideos[idx]}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
@@ -234,13 +260,18 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Deleted file: %s", cleanPath)
 
-	// Remove from video files list
+	// Remove from video files list and adjust sequential counter
+	videoMu.Lock()
 	for i, videoFile := range videoFiles {
 		if videoFile == filePath {
 			videoFiles = append(videoFiles[:i], videoFiles[i+1:]...)
+			if !isShuffle && i < videoIndex {
+				videoIndex--
+			}
 			break
 		}
 	}
+	videoMu.Unlock()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -275,6 +306,32 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+func handleRewind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	videoMu.Lock()
+	isRewind = !isRewind
+	active := isRewind
+	videoMu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"active": active})
+}
+
+func handleShuffle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	videoMu.Lock()
+	isShuffle = !isShuffle
+	active := isShuffle
+	videoMu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"active": active})
 }
 
 func handleExit(w http.ResponseWriter, r *http.Request) {
