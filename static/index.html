@@ -419,6 +419,16 @@
       cursor: default;
     }
 
+    .special-item {
+      box-shadow: 0 0 0 2px #ffd700, 0 0 14px rgba(255, 215, 0, 0.65);
+    }
+
+    .special-item img {
+      aspect-ratio: 1 / 1;
+      height: auto;
+      object-fit: cover;
+    }
+
     #focusContent img,
     #focusContent video {
       display: block;
@@ -467,6 +477,12 @@
       </div>
     </div>
 
+    <div class="control-group">
+      <div class="filter-button active" id="specialToggle" title="Random rapid-cycle image tile">
+        <img src="star.png" alt="Special">
+      </div>
+    </div>
+
     <div class="control-group" style="margin-left: auto; align-items: center; gap: 12px;">
       <span id="fileCount" style="font-size: 12px; color: #888; white-space: nowrap;"></span>
       <button id="exitButton" title="Exit application"><img src="exit.svg" alt="Exit"></button>
@@ -504,6 +520,7 @@
     const filterWebm = document.getElementById('filterWebm');
     const filterMp4 = document.getElementById('filterMp4');
     const filterImages = document.getElementById('filterImages');
+    const specialToggle = document.getElementById('specialToggle');
     const speed2xButton = document.getElementById('speed2x');
     const speed4xButton = document.getElementById('speed4x');
     const speed6xButton = document.getElementById('speed6x');
@@ -566,6 +583,14 @@
     let isMuted = true;
     let unmutedVideo = null; // Track the single unmuted video element
     const pinnedItems = new Map(); // item element → { spacer, columnIndex }
+
+    // Special rapid-cycle image tile ("star" effect)
+    let specialModeEnabled = true;
+    let specialItem = null; // the single grid-item currently doing the rapid-cycle effect (mutex)
+    let specialSpawnTimeout = null;
+    const SPECIAL_IMAGE_TYPES = ['jpg', 'jpeg', 'png', 'bmp', 'webp'];
+    const SPECIAL_IMAGE_COUNT = 10;
+    const SPECIAL_CYCLE_MS = 200;
 
     function setSpeed(multiplier) {
       const speedMap = { '2x': 2, '4x': 4, '6x': 6 };
@@ -711,6 +736,10 @@
       if (!isMuted) {
         setTimeout(() => unmuteRandomVideo(), 500);
       }
+
+      // Grid was rebuilt, so any special tile is gone; (re)schedule the next spawn
+      specialItem = null;
+      scheduleSpecialSpawn();
     }
 
     function isScrollUp(columnIndex) {
@@ -792,6 +821,58 @@
         video.src = '';
         video.load();
       }
+      if (item._specialInterval) {
+        clearInterval(item._specialInterval);
+        item._specialInterval = null;
+      }
+      if (item === specialItem) {
+        specialItem = null;
+        scheduleSpecialSpawn();
+      }
+    }
+
+    function insertItemIntoColumn(columnIndex, item, addToTop = false, isInitialLoad = false) {
+      const content = columnContents[columnIndex];
+
+      if (addToTop) {
+        if (!isInitialLoad) {
+          content.style.transition = 'none';
+        }
+
+        // Add item to a temporary container to measure its height
+        const tempContainer = document.createElement('div');
+        tempContainer.style.position = 'absolute';
+        tempContainer.style.visibility = 'hidden';
+        tempContainer.style.width = columnElements[columnIndex].offsetWidth + 'px';
+        document.body.appendChild(tempContainer);
+        tempContainer.appendChild(item);
+        const itemHeight = item.offsetHeight + 10;
+        tempContainer.removeChild(item);
+        document.body.removeChild(tempContainer);
+
+
+        // Get the latest scroll position right before making changes
+        const transform = getComputedStyle(content).transform;
+        let currentY = 0;
+        if (transform !== 'none') {
+          const matrix = transform.match(/matrix\(([^)]+)\)/);
+          if (matrix) {
+            currentY = parseFloat(matrix[1].split(',')[5]) || 0;
+          }
+        }
+
+        // Adjust scroll position and then insert the item
+        content.style.transform = `translateY(${currentY - itemHeight}px)`;
+        content.insertBefore(item, content.firstChild);
+
+        if (!isInitialLoad) {
+          content.offsetHeight;
+          content.style.transition = 'transform linear';
+        }
+
+      } else {
+        content.appendChild(item);
+      }
     }
 
     async function addNewItemToColumn(columnIndex, addToTop = false, isInitialLoad = false) {
@@ -801,7 +882,6 @@
       try {
         const url = await fetchRandomFile();
         const item = createGridItem(url);
-        const content = columnContents[columnIndex];
 
         const mediaElement = item.querySelector('img, video');
         if (mediaElement) {
@@ -822,51 +902,119 @@
             }
         }
 
-        if (addToTop) {
-          if (!isInitialLoad) {
-            content.style.transition = 'none';
-          }
-
-          // Add item to a temporary container to measure its height
-          const tempContainer = document.createElement('div');
-          tempContainer.style.position = 'absolute';
-          tempContainer.style.visibility = 'hidden';
-          tempContainer.style.width = columnElements[columnIndex].offsetWidth + 'px';
-          document.body.appendChild(tempContainer);
-          tempContainer.appendChild(item);
-          const itemHeight = item.offsetHeight + 10;
-          tempContainer.removeChild(item);
-          document.body.removeChild(tempContainer);
-
-
-          // Get the latest scroll position right before making changes
-          const transform = getComputedStyle(content).transform;
-          let currentY = 0;
-          if (transform !== 'none') {
-            const matrix = transform.match(/matrix\(([^)]+)\)/);
-            if (matrix) {
-              currentY = parseFloat(matrix[1].split(',')[5]) || 0;
-            }
-          }
-
-          // Adjust scroll position and then insert the item
-          content.style.transform = `translateY(${currentY - itemHeight}px)`;
-          content.insertBefore(item, content.firstChild);
-
-          if (!isInitialLoad) {
-            content.offsetHeight;
-            content.style.transition = 'transform linear';
-          }
-
-        } else {
-          content.appendChild(item);
-        }
+        insertItemIntoColumn(columnIndex, item, addToTop, isInitialLoad);
       } catch (error) {
         console.error('Failed to add item to column:', error);
       } finally {
         columnLoading[columnIndex] = false;
       }
     }
+
+    async function fetchRandomImageUrl() {
+      const res = await fetch(`/api/videos?page=0&limit=1&types=${SPECIAL_IMAGE_TYPES.join(',')}`);
+      const urls = await res.json();
+      return urls[0];
+    }
+
+    function createSpecialGridItem(urls) {
+      const item = document.createElement('div');
+      item.className = 'grid-item special-item';
+      item.dataset.url = urls[0];
+
+      const img = document.createElement('img');
+      img.src = urls[0];
+      item.appendChild(img);
+
+      let idx = 0;
+      item._specialInterval = setInterval(() => {
+        idx = (idx + 1) % urls.length;
+        img.src = urls[idx];
+        item.dataset.url = urls[idx];
+      }, SPECIAL_CYCLE_MS);
+
+      // Add pin overlay
+      const pinOverlay = document.createElement('div');
+      pinOverlay.className = 'pin-overlay';
+      item.appendChild(pinOverlay);
+
+      pinOverlay.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (pinnedItems.has(item)) {
+          unpinItem(item);
+        } else {
+          pinItem(item);
+        }
+      });
+
+      // Add delete overlay
+      const deleteOverlay = document.createElement('div');
+      deleteOverlay.className = 'delete-overlay';
+      item.appendChild(deleteOverlay);
+
+      return item;
+    }
+
+    function scheduleSpecialSpawn(delayMs = 0) {
+      clearTimeout(specialSpawnTimeout);
+      specialSpawnTimeout = null;
+      if (!specialModeEnabled) return;
+      specialSpawnTimeout = setTimeout(trySpawnSpecial, delayMs);
+    }
+
+    async function trySpawnSpecial() {
+      if (!specialModeEnabled || specialItem || columns === 0 || !filterImages.classList.contains('active')) {
+        // Not eligible right now (e.g. images filter off) - poll again shortly rather than spinning.
+        scheduleSpecialSpawn(1000);
+        return;
+      }
+
+      const columnIndex = Math.floor(Math.random() * columns);
+
+      try {
+        const urls = [];
+        for (let i = 0; i < SPECIAL_IMAGE_COUNT; i++) {
+          const url = await fetchRandomImageUrl();
+          if (url) urls.push(url);
+        }
+
+        // Conditions may have changed while fetching (filter toggled off, mode disabled, etc.)
+        if (urls.length === 0 || !specialModeEnabled || specialItem || !filterImages.classList.contains('active')) {
+          scheduleSpecialSpawn(1000);
+          return;
+        }
+
+        const item = createSpecialGridItem(urls);
+        const img = item.querySelector('img');
+        try {
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+          });
+        } catch (e) {
+          console.error('Special tile image failed to load', e);
+        }
+
+        const scrollUp = isScrollUp(columnIndex);
+        insertItemIntoColumn(columnIndex, item, !scrollUp);
+        specialItem = item;
+      } catch (error) {
+        console.error('Failed to spawn special item:', error);
+        scheduleSpecialSpawn(1000);
+      }
+    }
+
+    specialToggle.addEventListener('click', () => {
+      specialModeEnabled = !specialModeEnabled;
+      specialToggle.classList.toggle('active', specialModeEnabled);
+      specialToggle.classList.toggle('inactive', !specialModeEnabled);
+
+      if (specialModeEnabled) {
+        scheduleSpecialSpawn();
+      } else {
+        clearTimeout(specialSpawnTimeout);
+        specialSpawnTimeout = null;
+      }
+    });
 
     function pinItem(item) {
       const content = item.parentElement;
